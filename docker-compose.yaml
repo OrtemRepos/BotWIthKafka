@@ -1,0 +1,102 @@
+version: '3'
+
+services:
+
+  redis:
+      image: "redis/redis-stack:7.4.0-v0"
+      container_name: redis
+      networks:
+        - net
+      env_file:
+        - ".env"
+      ports:
+        - "8001:8001"
+        - "6379:6379"
+      volumes:
+        - redisdata:/data
+      deploy:
+        resources:
+          limits:
+            cpus: '0.50'
+            memory: 512M
+          reservations:
+            cpus: '0.25'
+            memory: 256M
+
+      healthcheck:
+        test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+        interval: 1s
+        timeout: 3s
+        retries: 5
+      restart: unless-stopped
+      tty: true
+      stdin_open: true
+
+  
+  broker:
+    image: 'bitnami/kafka:3.3.2'
+    container_name: broker
+    networks:
+      - net
+    environment:
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093, EXTERNAL://:9094
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://broker:9092,EXTERNAL://localhost:9094
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT, EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@broker:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+    ports:
+      - 9094:9094
+    healthcheck:
+      test: kafka-topics.sh --bootstrap-server broker:9092 --topic hc --create --if-not-exists && kafka-topics.sh --bootstrap-server broker:9092 --topic hc --describe
+      interval: 1s
+      timeout: 60s
+      retries: 60
+
+  backend:
+    image: bot_exchanger_api:0.1.1
+    container_name: backend
+    networks:
+      - net
+    env_file:
+      - ".env"
+    environment:
+      BOOTSTRAP_SERVER: "broker:9092"
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+    entrypoint: ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  # bot:
+  #   image: telegram_bot:0.1.0
+  #   container_name: bot
+  #   networks:
+  #     - net
+  #   env_file:
+  #     - ".env"
+  #   environment:
+  #     BOOTSTRAP_SERVER: "broker:9092"
+  #   ports:
+  #     - "8002:8002"
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #     broker:
+  #       condition: service_healthy
+  #     backend:
+  #       condition: service_started
+  #   entrypoint: ["uv", "run", "src/main.py"]
+
+
+volumes:
+  redisdata:
+  kafkadata:
+
+networks:
+  net:
+    driver: bridge
