@@ -12,6 +12,8 @@ kafka_router = KafkaRouter()
 sender_request = kafka_router.publisher(
     "exchange-rate-request",
     headers={"content-type": "application/json"},
+    title="Request producer",
+    description="Send request for exchange rate",
     schema=ExchangeRequest,
 )
 
@@ -42,7 +44,7 @@ async def get_name(message: types.Message):
         logger.exception("Unexpected error: %s")
 
 
-@kafka_router.subscriber("exchange-rate-output")
+@kafka_router.subscriber("exchange-rate-output", title="Exchange rate consumer", description="Get exchange rate from backend")
 async def get_exchange_rate(exchange_rate: ExchangeRateMessage, bot: Bot = Context()):
     await logger.ainfo(
         "Get exchange rate message from kafka", message=exchange_rate.model_dump()
